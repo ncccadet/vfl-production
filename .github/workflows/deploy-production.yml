@@ -1,0 +1,56 @@
+# Auto-deploy to production EC2 on push to 'main' branch.
+# NEVER deploy manually via SSH. Always through this pipeline.
+# PM2 zero-downtime reload: students mid-session notice nothing.
+
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Production EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.PROD_EC2_SSH_KEY }}
+          envs: PROD_AWS_ACCESS_KEY_ID,PROD_AWS_SECRET_ACCESS_KEY,PROD_DOMAIN,PROD_SES_FROM_EMAIL
+          script: |
+            set -e
+            cd /home/ubuntu/voxera-law
+            git pull origin main || { echo "DEPLOY ABORTED: git pull failed. Server has uncommitted local changes that must be resolved manually before the next deploy."; exit 1; }
+
+            export AWS_ACCESS_KEY_ID="$PROD_AWS_ACCESS_KEY_ID"
+            export AWS_SECRET_ACCESS_KEY="$PROD_AWS_SECRET_ACCESS_KEY"
+            export AWS_DEFAULT_REGION=ap-south-1
+
+            {
+              echo "NODE_ENV=production"
+              echo "PORT=4000"
+              echo "FRONTEND_URL=https://$PROD_DOMAIN"
+              echo "AWS_REGION=ap-south-1"
+              echo "S3_BUCKET_FILES=voxera-law-uploads-production"
+              echo "S3_BUCKET_FRONTEND=voxera-law-frontend-production"
+              echo "SES_FROM_EMAIL=$PROD_SES_FROM_EMAIL"
+              echo "JWT_ACCESS_EXPIRES=15m"
+              echo "JWT_REFRESH_EXPIRES=7d"
+              echo "DATABASE_URL=$(aws ssm get-parameter --name /voxera/production/DATABASE_URL --with-decryption --query Parameter.Value --output text)"
+              echo "REDIS_URL=$(aws ssm get-parameter --name /voxera/production/REDIS_URL --with-decryption --query Parameter.Value --output text)"
+              echo "JWT_ACCESS_SECRET=$(aws ssm get-parameter --name /voxera/production/JWT_ACCESS_SECRET --with-decryption --query Parameter.Value --output text)"
+              echo "JWT_REFRESH_SECRET=$(aws ssm get-parameter --name /voxera/production/JWT_REFRESH_SECRET --with-decryption --query Parameter.Value --output text)"
+              echo "GEMINI_API_KEY=$(aws ssm get-parameter --name /voxera/production/GEMINI_API_KEY --with-decryption --query Parameter.Value --output text 2>/dev/null || echo '')"
+            } > backend/.env
+
+            cd backend  && npm install --production
+            cd ../frontend && npm install && npm run build
+            aws s3 sync dist/ s3://voxera-law-frontend-production/ --delete
+            aws cloudfront create-invalidation --distribution-id ${{ secrets.PROD_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+            pm2 reload voxera-backend --update-env
+            pm2 reload otp-worker --update-env
+            echo "Production deploy complete $(date)"

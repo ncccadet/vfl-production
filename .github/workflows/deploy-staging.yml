@@ -1,0 +1,30 @@
+ # Auto-deploy to staging EC2 on push to 'staging' branch.
+# Nothing goes to production without passing staging first.
+
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Staging EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/voxera-law
+            git pull origin staging || { echo "DEPLOY ABORTED: git pull failed. Server has uncommitted local changes that must be resolved manually before the next deploy."; exit 1; }
+            cd backend  && npm install --production
+            cd ../frontend && npm install && npm run build
+            aws s3 sync dist/ s3://${{ secrets.S3_BUCKET_FRONTEND_STAGING }}/ --delete
+            aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+            pm2 reload voxera-backend --update-env
+            pm2 reload otp-worker --update-env
+            echo "Staging deploy complete $(date)"
