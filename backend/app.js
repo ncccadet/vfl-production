@@ -67,14 +67,7 @@ app.use('/api/law-news',         lawNewsRoutes);
 
 app.use(errorHandler); // MUST be last
 
-// ── Start workers (same process for simplicity; split to separate process in prod if needed) ──
-require('./workers/resumeAnalyzer.worker');
-require('./workers/draftingLab.worker');
-require('./workers/aiInterviewer.worker');
-require('./workers/lawNews.worker');
-require('./workers/otp.worker');
-require('./workers/jobScraper.worker');
-
+// Workers have been decoupled and moved to worker.js for production readiness
 // ── Start server ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
 const server = app.listen(PORT, () => console.log(`Voxera backend on port ${PORT}`));

@@ -9,7 +9,45 @@ on:
     branches: [main]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: voxera_law
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Test Backend
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/voxera_law
+          JWT_ACCESS_SECRET: test_secret
+          JWT_REFRESH_SECRET: test_secret
+        run: |
+          cd backend
+          npm ci
+          npm test
+      - name: Test Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm test
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,10 +85,10 @@ jobs:
               echo "GEMINI_API_KEY=$(aws ssm get-parameter --name /voxera/production/GEMINI_API_KEY --with-decryption --query Parameter.Value --output text 2>/dev/null || echo '')"
             } > backend/.env
 
-            cd backend  && npm install --production
-            cd ../frontend && npm install && npm run build
+            cd backend  && npm ci --production
+            cd ../frontend && npm ci && npm run build
             aws s3 sync dist/ s3://voxera-law-frontend-production/ --delete
             aws cloudfront create-invalidation --distribution-id ${{ secrets.PROD_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
-            pm2 reload voxera-backend --update-env
-            pm2 reload otp-worker --update-env
+            cd ..
+            pm2 startOrReload ecosystem.config.js --env production
             echo "Production deploy complete $(date)"

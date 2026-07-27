@@ -7,6 +7,8 @@
  */
 const { pool } = require('../config/db');
 
+const logger = require('../utils/logger');
+
 const errorHandler = async (err, req, res, _next) => {
   const isDev = process.env.NODE_ENV === 'development';
 
@@ -17,7 +19,7 @@ const errorHandler = async (err, req, res, _next) => {
     );
   } catch (_) { /* never let logging break the response */ }
 
-  console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
+  logger.error({ err, path: req.path, method: req.method }, err.message);
 
   res.status(err.status || 500).json({
     error: isDev ? err.message : 'Something went wrong. Please try again.',

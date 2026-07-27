@@ -13,12 +13,33 @@
 const { Worker } = require('bullmq');
 const { pool } = require('../config/db');
 const { callGemini } = require('../utils/gemini');
+const AWS = require('aws-sdk');
+const pdf = require('pdf-parse');
+const s3 = new AWS.S3();
 
 const worker = new Worker('resume-analysis', async (job) => {
   const { doc_id, s3Key, user_id, college_id, resume_text } = job.data;
   console.log(`Processing resume for user ${user_id}`);
   
-  const textToAnalyze = resume_text || 'No resume text provided. Please re-upload.';
+  let textToAnalyze = resume_text;
+
+  if (s3Key) {
+    try {
+      const s3Object = await s3.getObject({
+        Bucket: process.env.S3_BUCKET_FILES,
+        Key: s3Key
+      }).promise();
+      const pdfData = await pdf(s3Object.Body);
+      textToAnalyze = pdfData.text;
+    } catch (err) {
+      console.error('Error downloading/parsing PDF:', err);
+      throw new Error('Failed to process PDF file');
+    }
+  }
+  
+  if (!textToAnalyze) {
+    textToAnalyze = 'No resume text provided. Please re-upload.';
+  }
 
   const prompt = `Analyze the following resume text and provide a JSON response with exactly this schema:
 {
