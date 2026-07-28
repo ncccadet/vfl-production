@@ -1,18 +1,21 @@
-// draftingLab.routes.js — v2: three modes
+// draftingLab.routes.js
+// Contract: _contracts/04-drafting-lab.md
+// featureLimit('drafting_lab', 3) is applied to /case-study ONLY (AI case generation).
+// Listing types, polling the result and history carry no daily limit.
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth.middleware');
 const { featureLimit }   = require('../middleware/featureLimit.middleware');
-const { getTemplates, getTemplate, verifyBlanks, generateCaseStudy, submitCaseDraft, getCaseResult, getHistory } = require('../controllers/draftingLab.controller');
+const {
+  listTypes,
+  generateCaseStudy,
+  getCaseResult,
+  getHistory,
+} = require('../controllers/draftingLab.controller');
 
-// Modes 1–2: no AI → no featureLimit (free reads + deterministic verification)
-router.get('/templates',              authMiddleware, getTemplates);
-router.get('/templates/:id',          authMiddleware, getTemplate);
-router.post('/verify-blanks',         authMiddleware, verifyBlanks);
+router.get('/types',                    authMiddleware, listTypes);
+router.post('/case-study',              authMiddleware, featureLimit('drafting_lab', 3), generateCaseStudy);
+router.get('/case-study/result/:docId', authMiddleware, getCaseResult);
+router.get('/history',                  authMiddleware, getHistory);
 
-// Mode 3: AI — 3/day covers the PAIR (case generation counts; scoring of that case is free)
-router.post('/case-study',            authMiddleware, featureLimit('drafting_lab', 3), generateCaseStudy);
-router.post('/case-study/submit',     authMiddleware, submitCaseDraft);  // bounded: one submit per generated case (enforce in controller)
-router.get('/case-study/result/:id',  authMiddleware, getCaseResult);
-router.get('/history',                authMiddleware, getHistory);
 module.exports = router;
